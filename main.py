@@ -75,7 +75,9 @@ async def save_video(data: VideoSaveRequest):
         "author_phone": data.author_phone,
         "video_url": data.video_url,
         "image_url": data.image_url,
-        "status": "pending"
+        "status": "pending",
+        "likes": 0,
+        "views": 0
     }
     videos_db.append(video_data)
     return {"status": "ok", "video": video_data}
@@ -85,7 +87,6 @@ async def get_videos():
     approved = [v for v in videos_db if v["status"] == "approved"]
     return {"videos": approved}
 
-# НОВЫЙ ЭНДПОИНТ: Видео конкретного автора
 @app.get("/my-videos/{phone}")
 async def get_my_videos(phone: str):
     my_videos = [v for v in videos_db if v["author_phone"] == phone]
@@ -109,3 +110,20 @@ async def reject_video(video_id: str):
     global videos_db
     videos_db = [v for v in videos_db if v["id"] != video_id]
     return {"status": "ok"}
+
+# НОВЫЕ ЭНДПОИНТЫ ДЛЯ ЛАЙКОВ И ПРОСМОТРОВ
+@app.post("/like/{video_id}")
+async def like_video(video_id: str):
+    for v in videos_db:
+        if v["id"] == video_id:
+            v["likes"] += 1
+            return {"status": "ok", "likes": v["likes"]}
+    raise HTTPException(status_code=404, detail="Видео не найдено")
+
+@app.post("/view/{video_id}")
+async def view_video(video_id: str):
+    for v in videos_db:
+        if v["id"] == video_id:
+            v["views"] += 1
+            return {"status": "ok", "views": v["views"]}
+    raise HTTPException(status_code=404, detail="Видео не найдено")
