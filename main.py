@@ -21,7 +21,7 @@ s3 = boto3.client(
 )
 
 active_codes = {}
-videos_db = [] # Здесь храним ВСЕ видео (и на модерации, и одобренные)
+videos_db = []
 
 class CodeRequest(BaseModel):
     phone: str
@@ -75,24 +75,27 @@ async def save_video(data: VideoSaveRequest):
         "author_phone": data.author_phone,
         "video_url": data.video_url,
         "image_url": data.image_url,
-        "status": "pending" # Статус: на модерации!
+        "status": "pending"
     }
     videos_db.append(video_data)
     return {"status": "ok", "video": video_data}
 
-# Лента (только одобренные)
 @app.get("/videos")
 async def get_videos():
     approved = [v for v in videos_db if v["status"] == "approved"]
     return {"videos": approved}
 
-# Админ: получить все видео на модерации
+# НОВЫЙ ЭНДПОИНТ: Видео конкретного автора
+@app.get("/my-videos/{phone}")
+async def get_my_videos(phone: str):
+    my_videos = [v for v in videos_db if v["author_phone"] == phone]
+    return {"videos": my_videos}
+
 @app.get("/admin/pending")
 async def get_pending():
     pending = [v for v in videos_db if v["status"] == "pending"]
     return {"videos": pending}
 
-# Админ: одобрить видео
 @app.post("/admin/approve/{video_id}")
 async def approve_video(video_id: str):
     for v in videos_db:
@@ -101,7 +104,6 @@ async def approve_video(video_id: str):
             return {"status": "ok"}
     raise HTTPException(status_code=404, detail="Видео не найдено")
 
-# Админ: отклонить видео
 @app.post("/admin/reject/{video_id}")
 async def reject_video(video_id: str):
     global videos_db
