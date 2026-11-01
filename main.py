@@ -7,13 +7,11 @@ import uuid
 
 app = FastAPI()
 
-# Настройки для Upstash
 S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_BUCKET = "anime-app-storage"
 
-# Подключаемся к хранилищу
 s3 = boto3.client(
     's3',
     endpoint_url=S3_ENDPOINT,
@@ -22,9 +20,8 @@ s3 = boto3.client(
     config=Config(signature_version='s3v4')
 )
 
-# Временное хранилище
 active_codes = {}
-videos_db = []  # Список для хранения видео
+videos_db = [] # Здесь храним ВСЕ видео (и на модерации, и одобренные)
 
 class CodeRequest(BaseModel):
     phone: str
@@ -62,7 +59,6 @@ async def get_upload_url(data: UploadRequest):
     public_url = f"{S3_ENDPOINT}/{S3_BUCKET}/{file_key}"
     return {"upload_url": url, "public_url": public_url}
 
-# НОВЫЙ ЭНДПОИНТ: Сохранение видео
 class VideoSaveRequest(BaseModel):
     title: str
     description: str
@@ -78,12 +74,36 @@ async def save_video(data: VideoSaveRequest):
         "description": data.description,
         "author_phone": data.author_phone,
         "video_url": data.video_url,
-        "image_url": data.image_url
+        "image_url": data.image_url,
+        "status": "pending" # Статус: на модерации!
     }
     videos_db.append(video_data)
     return {"status": "ok", "video": video_data}
 
-# НОВЫЙ ЭНДПОИНТ: Получение ленты
+# Лента (только одобренные)
 @app.get("/videos")
 async def get_videos():
-    return {"videos": videos_db}
+    approved = [v for v in videos_db if v["status"] == "approved"]
+    return {"videos": approved}
+
+# Админ: получить все видео на модерации
+@app.get("/admin/pending")
+async def get_pending():
+    pending = [v for v in videos_db if v["status"] == "pending"]
+    return {"videos": pending}
+
+# Админ: одобрить видео
+@app.post("/admin/approve/{video_id}")
+async def approve_video(video_id: str):
+    for v in videos_db:
+        if v["id"] == video_id:
+            v["status"] = "approved"
+            return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Видео не найдено")
+
+# Админ: отклонить видео
+@app.post("/admin/reject/{video_id}")
+async def reject_video(video_id: str):
+    global videos_db
+    videos_db = [v for v in videos_db if v["id"] != video_id]
+    return {"status": "ok"}
