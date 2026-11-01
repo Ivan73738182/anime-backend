@@ -1,24 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import boto3
-from botocore.config import Config
+from upstash_blob import Bucket
 import os
 import uuid
 
 app = FastAPI()
 
-S3_ENDPOINT = os.getenv("S3_ENDPOINT")
-S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
-S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
-S3_BUCKET = "anime-app-storage"
-
-s3 = boto3.client(
-    's3',
-    endpoint_url=S3_ENDPOINT,
-    aws_access_key_id=S3_ACCESS_KEY,
-    aws_secret_access_key=S3_SECRET_KEY,
-    config=Config(signature_version='s3v4')
-)
+# Получаем токен из переменных окружения (тот, что мы вставили в .env)
+UPSTASH_TOKEN = os.getenv("S3_ACCESS_KEY") 
+bucket = Bucket.from_token(UPSTASH_TOKEN)
 
 active_codes = {}
 videos_db = []
@@ -51,13 +41,14 @@ class UploadRequest(BaseModel):
 @app.post("/get-upload-url")
 async def get_upload_url(data: UploadRequest):
     file_key = f"{data.file_type}/{uuid.uuid4()}_{data.filename}"
-    url = s3.generate_presigned_url(
-        ClientMethod='put_object',
-        Params={'Bucket': S3_BUCKET, 'Key': file_key},
-        ExpiresIn=900
+    
+    # Генерируем правильную ссылку для загрузки через Upstash
+    upload = bucket.signed_upload_url(
+        file_key,
+        content_type="image/jpeg" if data.file_type == "image" else "video/mp4"
     )
-    public_url = f"{S3_ENDPOINT}/{S3_BUCKET}/{file_key}"
-    return {"upload_url": url, "public_url": public_url}
+    
+    return {"upload_url": upload.url, "public_url": bucket.public_url(file_key)}
 
 class VideoSaveRequest(BaseModel):
     title: str
@@ -111,7 +102,6 @@ async def reject_video(video_id: str):
     videos_db = [v for v in videos_db if v["id"] != video_id]
     return {"status": "ok"}
 
-# НОВЫЕ ЭНДПОИНТЫ ДЛЯ ЛАЙКОВ И ПРОСМОТРОВ
 @app.post("/like/{video_id}")
 async def like_video(video_id: str):
     for v in videos_db:
