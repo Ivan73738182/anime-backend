@@ -6,9 +6,9 @@ import uuid
 
 app = FastAPI()
 
-# Получаем токен из переменных окружения (тот, что мы вставили в .env)
-UPSTASH_TOKEN = os.getenv("S3_ACCESS_KEY") 
-bucket = Bucket.from_token(UPSTASH_TOKEN)
+# ТОКЕН ВПИСАН ПРЯМО В КОД (замени на свой, если он другой)
+UPSTASH_TOKEN = "AgAkADAMNzIwYzkxN2ItNmE5OC00MjE4LThjYjYtMGFmN2VhMzUyYjVjTm1Ka09EUTVaV1l0TldReU55MDBOemN6TFdGbE5UTXROakF3TlRFNU5HSTFNbUprYmEwMWQzOTJjZjVi"
+bucket = Bucket(UPSTASH_TOKEN)
 
 active_codes = {}
 videos_db = []
@@ -41,14 +41,15 @@ class UploadRequest(BaseModel):
 @app.post("/get-upload-url")
 async def get_upload_url(data: UploadRequest):
     file_key = f"{data.file_type}/{uuid.uuid4()}_{data.filename}"
-    
-    # Генерируем правильную ссылку для загрузки через Upstash
     upload = bucket.signed_upload_url(
         file_key,
         content_type="image/jpeg" if data.file_type == "image" else "video/mp4"
     )
-    
-    return {"upload_url": upload.url, "public_url": bucket.public_url(file_key)}
+    return {
+        "upload_url": upload.url,
+        "public_url": bucket.public_url(file_key),
+        "headers": upload.headers
+    }
 
 class VideoSaveRequest(BaseModel):
     title: str
@@ -68,7 +69,9 @@ async def save_video(data: VideoSaveRequest):
         "image_url": data.image_url,
         "status": "pending",
         "likes": 0,
-        "views": 0
+        "views": 0,
+        "liked_by": [],
+        "reject_reason": ""
     }
     videos_db.append(video_data)
     return {"status": "ok", "video": video_data}
@@ -96,16 +99,29 @@ async def approve_video(video_id: str):
             return {"status": "ok"}
     raise HTTPException(status_code=404, detail="Видео не найдено")
 
-@app.post("/admin/reject/{video_id}")
-async def reject_video(video_id: str):
-    global videos_db
-    videos_db = [v for v in videos_db if v["id"] != video_id]
-    return {"status": "ok"}
+class RejectRequest(BaseModel):
+    reason: str
 
-@app.post("/like/{video_id}")
-async def like_video(video_id: str):
+@app.post("/admin/reject/{video_id}")
+async def reject_video(video_id: str, data: RejectRequest):
     for v in videos_db:
         if v["id"] == video_id:
+            v["status"] = "rejected"
+            v["reject_reason"] = data.reason
+            return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Видео не найдено")
+
+class LikeRequest(BaseModel):
+    phone: str
+
+@app.post("/like/{video_id}")
+async def like_video(video_id: str, data: LikeRequest):
+    for v in videos_db:
+        if v["id"] == video_id:
+            if data.phone in v.get("liked_by", []):
+                return {"status": "already_liked", "likes": v["likes"]}
+            
+            v.setdefault("liked_by", []).append(data.phone)
             v["likes"] += 1
             return {"status": "ok", "likes": v["likes"]}
     raise HTTPException(status_code=404, detail="Видео не найдено")
